@@ -121,6 +121,7 @@ func (c *config) watchConfig() <-chan Config {
 
 func (c *config) loadFromDisk() (*Config, error) {
 	var err error
+	// 只会load一次
 	c.loadOnce.Do(func() {
 		if err = viper.ReadInConfig(); err != nil {
 			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -132,16 +133,19 @@ func (c *config) loadFromDisk() (*Config, error) {
 	return c.cfg, err
 }
 
+// ks-apiserver 启动时默认配置
 func defaultConfig() *config {
+	// kubesphere 默认配置名和默认路径
 	viper.SetConfigName(defaultConfigurationName)
 	viper.AddConfigPath(defaultConfigurationPath)
 
-	// Load from current working directory, only used for debugging
+	// 搜索Config配置文件时，从当前目录开始搜索
 	viper.AddConfigPath(".")
 
 	// Load from Environment variables
 	viper.SetEnvPrefix("kubesphere")
 	viper.AutomaticEnv()
+	// 环境变量的key转换器， a.b.c ==> a_b_c
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	return &config{
@@ -213,6 +217,7 @@ func New() *Config {
 // TryLoadFromDisk loads configuration from default location after server startup
 // return nil error if configuration file not exists
 func TryLoadFromDisk() (*Config, error) {
+	// 使用默认配置开始加载
 	return _config.loadFromDisk()
 }
 

@@ -38,9 +38,10 @@ import (
 func NewAPIServerCommand() *cobra.Command {
 	s := options.NewServerRunOptions()
 
-	// Load configuration from file
+	// 从本地磁盘文件加载配置
 	conf, err := apiserverconfig.TryLoadFromDisk()
 	if err == nil {
+		// 如果加载config成功，则会初始化Command Options
 		s = &options.ServerRunOptions{
 			GenericServerRunOptions: s.GenericServerRunOptions,
 			Config:                  conf,

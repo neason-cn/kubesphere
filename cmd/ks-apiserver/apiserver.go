@@ -22,6 +22,7 @@ import (
 	"kubesphere.io/kubesphere/cmd/ks-apiserver/app"
 )
 
+// ks-apiserver 启动入口
 func main() {
 
 	cmd := app.NewAPIServerCommand()
