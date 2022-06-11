@@ -118,12 +118,14 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 		Config: s.Config,
 	}
 
+	// 初始化 k8s 的客户端
 	kubernetesClient, err := k8s.NewKubernetesClient(s.KubernetesOptions)
 	if err != nil {
 		return nil, err
 	}
 	apiServer.KubernetesClient = kubernetesClient
 
+	// 初始化 informerFactory
 	informerFactory := informers.NewInformerFactories(kubernetesClient.Kubernetes(), kubernetesClient.KubeSphere(),
 		kubernetesClient.Istio(), kubernetesClient.Snapshot(), kubernetesClient.ApiExtensions(), kubernetesClient.Prometheus())
 	apiServer.InformerFactory = informerFactory
@@ -131,6 +133,7 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	if s.MonitoringOptions == nil || len(s.MonitoringOptions.Endpoint) == 0 {
 		return nil, fmt.Errorf("moinitoring service address in configuration MUST not be empty, please check configmap/kubesphere-config in kubesphere-system namespace")
 	} else {
+		// 初始化 prometheus 的监控客户端
 		monitoringClient, err := prometheus.NewPrometheus(s.MonitoringOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to prometheus, please check prometheus status, error: %v", err)
@@ -138,9 +141,11 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 		apiServer.MonitoringClient = monitoringClient
 	}
 
+	// 初始化 指标上报的客户端
 	apiServer.MetricsClient = metricsserver.NewMetricsClient(kubernetesClient.Kubernetes(), s.KubernetesOptions)
 
 	if s.LoggingOptions.Host != "" {
+		// 初始化日志收集 ES 客户端
 		loggingClient, err := esclient.NewClient(s.LoggingOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to elasticsearch, please check elasticsearch status, error: %v", err)
@@ -149,9 +154,11 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	}
 
 	if s.S3Options.Endpoint != "" {
+		// FAKE 模式下本地内存mock S3
 		if s.S3Options.Endpoint == fakeInterface && s.DebugMode {
 			apiServer.S3Client = fakes3.NewFakeS3()
 		} else {
+			// 真实S3-client
 			s3Client, err := s3.NewS3Client(s.S3Options)
 			if err != nil {
 				return nil, fmt.Errorf("failed to connect to s3, please check s3 service status, error: %v", err)
@@ -161,6 +168,7 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	}
 
 	if s.DevopsOptions.Host != "" {
+		// 初始化流水线 Jenkins的客户端
 		devopsClient, err := jenkins.NewDevopsClient(s.DevopsOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to jenkins, please check jenkins status, error: %v", err)
@@ -169,6 +177,7 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	}
 
 	if s.SonarQubeOptions.Host != "" {
+		// 初始化流水线 Sonar的客户端
 		sonarClient, err := sonarqube.NewSonarQubeClient(s.SonarQubeOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connecto to sonarqube, please check sonarqube status, error: %v", err)
@@ -179,8 +188,10 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	var cacheClient cache.Interface
 	if s.RedisOptions != nil && len(s.RedisOptions.Host) != 0 {
 		if s.RedisOptions.Host == fakeInterface && s.DebugMode {
+			// FAKE 模式下本地内存 mock 缓存
 			apiServer.CacheClient = cache.NewSimpleCache()
 		} else {
+			// 初始化 redis client
 			cacheClient, err = cache.NewRedisClient(s.RedisOptions, stopCh)
 			if err != nil {
 				return nil, fmt.Errorf("failed to connect to redis service, please check redis status, error: %v", err)
@@ -190,10 +201,12 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	} else {
 		klog.Warning("ks-apiserver starts without redis provided, it will use in memory cache. " +
 			"This may cause inconsistencies when running ks-apiserver with multiple replicas.")
+		// 如果spiServer 没有提供Redis，或者没有redis相关配置，则降级使用本地内存作为缓存
 		apiServer.CacheClient = cache.NewSimpleCache()
 	}
 
 	if s.EventsOptions.Host != "" {
+		// 用 ES 来作为"事件"的存储
 		eventsClient, err := eventsclient.NewClient(s.EventsOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to elasticsearch, please check elasticsearch status, error: %v", err)
@@ -202,6 +215,7 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	}
 
 	if s.AuditingOptions.Host != "" {
+		// 用 ES 来作为"审计"的存储
 		auditingClient, err := auditingclient.NewClient(s.AuditingOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to elasticsearch, please check elasticsearch status, error: %v", err)
@@ -210,6 +224,7 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 	}
 
 	if s.AlertingOptions != nil && (s.AlertingOptions.PrometheusEndpoint != "" || s.AlertingOptions.ThanosRulerEndpoint != "") {
+		// 初始化 Prometheus 和 ThanosRuler，用于管理告警规则
 		alertingClient, err := alerting.NewRuleClient(s.AlertingOptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init alerting client: %v", err)
@@ -222,8 +237,10 @@ func (s *ServerRunOptions) NewAPIServer(stopCh <-chan struct{}) (*apiserver.APIS
 		apiServer.ClusterClient = cc
 	}
 
+	// "应用商店" 的依赖 OpenPitrix
 	apiServer.OpenpitrixClient = openpitrixv1.NewOpenpitrixClient(informerFactory, apiServer.KubernetesClient.KubeSphere(), s.OpenPitrixOptions, apiServer.ClusterClient, stopCh)
 
+	// 启动 HttpServer
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", s.GenericServerRunOptions.InsecurePort),
 	}

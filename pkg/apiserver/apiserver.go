@@ -170,6 +170,7 @@ type APIServer struct {
 }
 
 func (s *APIServer) PrepareRun(stopCh <-chan struct{}) error {
+	// restful-go container 相关配置
 	s.container = restful.NewContainer()
 	s.container.Filter(logRequestAndResponse)
 	s.container.Router(restful.CurlyRouter{})
@@ -177,6 +178,7 @@ func (s *APIServer) PrepareRun(stopCh <-chan struct{}) error {
 		logStackOnRecover(panicReason, httpWriter)
 	})
 
+	// [重要] http container 路由配置,每个container里面包含了 url-handler的映射关系
 	s.installKubeSphereAPIs(stopCh)
 	s.installCRDAPIs()
 	s.installMetricsAPI()
@@ -224,19 +226,29 @@ func (s *APIServer) installKubeSphereAPIs(stopCh <-chan struct{}) {
 		s.DevopsClient)
 	rbacAuthorizer := rbac.NewRBACAuthorizer(amOperator)
 
+	// APIServer 本身相关配置
 	urlruntime.Must(configv1alpha2.AddToContainer(s.container, s.Config))
+	// K8s 原生资源（resource）的相关接口 v1alpha3
 	urlruntime.Must(resourcev1alpha3.AddToContainer(s.container, s.InformerFactory, s.RuntimeCache))
+	// 监控
 	urlruntime.Must(monitoringv1alpha3.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.MonitoringClient, s.MetricsClient, s.InformerFactory, s.OpenpitrixClient, s.RuntimeClient))
+	// 指标
 	urlruntime.Must(meteringv1alpha1.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.MonitoringClient, s.InformerFactory, s.RuntimeCache, s.Config.MeteringOptions, s.OpenpitrixClient, s.RuntimeClient))
+	// 应用商店，openpitrix v1
 	urlruntime.Must(openpitrixv1.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.KubeSphere(), s.Config.OpenPitrixOptions, s.OpenpitrixClient))
+	// 应用商店，openpitrix v2
 	urlruntime.Must(openpitrixv2alpha1.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.KubeSphere(), s.Config.OpenPitrixOptions))
+	// k8s job查询
 	urlruntime.Must(operationsv1alpha2.AddToContainer(s.container, s.KubernetesClient.Kubernetes()))
+	// K8s 原生资源（resource） v1alpha2
 	urlruntime.Must(resourcesv1alpha2.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.InformerFactory,
 		s.KubernetesClient.Master()))
+	// 租户管理
 	urlruntime.Must(tenantv1alpha2.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.Kubernetes(),
 		s.KubernetesClient.KubeSphere(), s.EventsClient, s.LoggingClient, s.AuditingClient, amOperator, imOperator, rbacAuthorizer, s.MonitoringClient, s.RuntimeCache, s.Config.MeteringOptions, s.OpenpitrixClient))
 	urlruntime.Must(tenantv1alpha3.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.Kubernetes(),
 		s.KubernetesClient.KubeSphere(), s.EventsClient, s.LoggingClient, s.AuditingClient, amOperator, imOperator, rbacAuthorizer, s.MonitoringClient, s.RuntimeCache, s.Config.MeteringOptions, s.OpenpitrixClient))
+	// 终端命令行
 	urlruntime.Must(terminalv1alpha2.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), rbacAuthorizer, s.KubernetesClient.Config(), s.Config.TerminalOptions))
 	urlruntime.Must(clusterkapisv1alpha1.AddToContainer(s.container,
 		s.KubernetesClient.KubeSphere(),
@@ -245,10 +257,12 @@ func (s *APIServer) installKubeSphereAPIs(stopCh <-chan struct{}) {
 		s.Config.MultiClusterOptions.ProxyPublishService,
 		s.Config.MultiClusterOptions.ProxyPublishAddress,
 		s.Config.MultiClusterOptions.AgentImage))
+	// iam权限
 	urlruntime.Must(iamapi.AddToContainer(s.container, imOperator, amOperator,
 		group.New(s.InformerFactory, s.KubernetesClient.KubeSphere(), s.KubernetesClient.Kubernetes()),
 		rbacAuthorizer))
 
+	// oauth
 	userLister := s.InformerFactory.KubeSphereSharedInformerFactory().Iam().V1alpha2().Users().Lister()
 	urlruntime.Must(oauth.AddToContainer(s.container, imOperator,
 		auth.NewTokenOperator(s.CacheClient, s.Issuer, s.Config.AuthenticationOptions),
@@ -256,19 +270,25 @@ func (s *APIServer) installKubeSphereAPIs(stopCh <-chan struct{}) {
 		auth.NewOAuthAuthenticator(s.KubernetesClient.KubeSphere(), userLister, s.Config.AuthenticationOptions),
 		auth.NewLoginRecorder(s.KubernetesClient.KubeSphere(), userLister),
 		s.Config.AuthenticationOptions))
+	// app service workload相关
 	urlruntime.Must(servicemeshv1alpha2.AddToContainer(s.Config.ServiceMeshOptions, s.container, s.KubernetesClient.Kubernetes(), s.CacheClient))
+	// 网络拓扑
 	urlruntime.Must(networkv1alpha2.AddToContainer(s.container, s.Config.NetworkOptions.WeaveScopeHost))
+	// devops proxy
 	urlruntime.Must(kapisdevops.AddToContainer(s.container, s.Config.DevopsOptions.Endpoint))
 	urlruntime.Must(notificationv1.AddToContainer(s.container, s.Config.NotificationOptions.Endpoint))
+	// 告警
 	urlruntime.Must(alertingv1.AddToContainer(s.container, s.Config.AlertingOptions.Endpoint))
 	urlruntime.Must(alertingv2alpha1.AddToContainer(s.container, s.InformerFactory,
 		s.KubernetesClient.Prometheus(), s.AlertingClient, s.Config.AlertingOptions))
 	urlruntime.Must(version.AddToContainer(s.container, s.KubernetesClient.Kubernetes().Discovery()))
 	urlruntime.Must(kubeedgev1alpha1.AddToContainer(s.container, s.Config.KubeEdgeOptions.Endpoint))
 	urlruntime.Must(edgeruntimev1alpha1.AddToContainer(s.container, s.Config.EdgeRuntimeOptions.Endpoint))
+	// 通知
 	urlruntime.Must(notificationkapisv2beta1.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.Kubernetes(),
 		s.KubernetesClient.KubeSphere()))
 	urlruntime.Must(notificationkapisv2beta2.AddToContainer(s.container, s.Config.NotificationOptions))
+	// 网关
 	urlruntime.Must(gatewayv1alpha1.AddToContainer(s.container, s.Config.GatewayOptions, s.RuntimeCache, s.RuntimeClient, s.InformerFactory, s.KubernetesClient.Kubernetes(), s.LoggingClient))
 }
 
@@ -291,10 +311,12 @@ func (s *APIServer) Run(ctx context.Context) (err error) {
 	defer cancel()
 
 	go func() {
+		// 阻塞，等待结束信号
 		<-ctx.Done()
 		_ = s.Server.Shutdown(shutdownCtx)
 	}()
 
+	// 启动HTTP Server
 	klog.V(0).Infof("Start listening on %s", s.Server.Addr)
 	if s.Server.TLSConfig != nil {
 		err = s.Server.ListenAndServeTLS("", "")
@@ -625,15 +647,19 @@ func logStackOnRecover(panicReason interface{}, w http.ResponseWriter) {
 }
 
 func logRequestAndResponse(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
+	// 执行前的时间点
 	start := time.Now()
+	// 执行后续http请求处理【执行前并没有直接记录Request】
 	chain.ProcessFilter(req, resp)
 
 	// Always log error response
 	logWithVerbose := klog.V(4)
+	// 响应码大于400算 "BadRequest", 都会记录
 	if resp.StatusCode() > http.StatusBadRequest {
 		logWithVerbose = klog.V(0)
 	}
 
+	// 记录request和response，以及请求处理耗时
 	logWithVerbose.Infof("%s - \"%s %s %s\" %d %d %dms",
 		iputil.RemoteIp(req.Request),
 		req.Request.Method,

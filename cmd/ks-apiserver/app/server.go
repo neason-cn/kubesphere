@@ -67,7 +67,7 @@ cluster's shared state through which all other components interact.`,
 					klog.Fatal(err)
 				}
 			}
-
+			// [重要] 核心启动入口
 			return Run(s, apiserverconfig.WatchConfigChange(), signals.SetupSignalHandler())
 		},
 		SilenceUsage: true,
@@ -101,9 +101,11 @@ cluster's shared state through which all other components interact.`,
 
 func Run(s *options.ServerRunOptions, configCh <-chan apiserverconfig.Config, ctx context.Context) error {
 	ictx, cancelFunc := context.WithCancel(context.TODO())
+	// 专门用于监听启动错误的channel
 	errCh := make(chan error)
 	defer close(errCh)
 	go func() {
+		// 启动入口
 		if err := run(s, ictx); err != nil {
 			errCh <- err
 		}
@@ -134,16 +136,19 @@ func Run(s *options.ServerRunOptions, configCh <-chan apiserverconfig.Config, ct
 }
 
 func run(s *options.ServerRunOptions, ctx context.Context) error {
+	// 初始化 APIServer, 主要初始化必要依赖的客户端
 	apiserver, err := s.NewAPIServer(ctx.Done())
 	if err != nil {
 		return err
 	}
 
+	// 主要是Http相关的初始化，restful container相关配置
 	err = apiserver.PrepareRun(ctx.Done())
 	if err != nil {
 		return err
 	}
 
+	// 运行启动
 	err = apiserver.Run(ctx)
 	if err == http.ErrServerClosed {
 		return nil
